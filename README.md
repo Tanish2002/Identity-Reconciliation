@@ -1,99 +1,161 @@
-<p align="center">
-  <a href="http://nestjs.com/" target="blank"><img src="https://nestjs.com/img/logo-small.svg" width="120" alt="Nest Logo" /></a>
-</p>
+# Bitespeed Backend Task: Identity Reconciliation
 
-[circleci-image]: https://img.shields.io/circleci/build/github/nestjs/nest/master?token=abc123def456
-[circleci-url]: https://circleci.com/gh/nestjs/nest
+## Overview
+The goal of this project is to link and track client IDs across many purchases by implementing an identity reconciliation service for FluxKart.com. Even when clients make transactions using different phone numbers or email addresses, the program helps keep a single customer profile.
 
-  <p align="center">A progressive <a href="http://nodejs.org" target="_blank">Node.js</a> framework for building efficient and scalable server-side applications.</p>
-    <p align="center">
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/v/@nestjs/core.svg" alt="NPM Version" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/l/@nestjs/core.svg" alt="Package License" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/dm/@nestjs/common.svg" alt="NPM Downloads" /></a>
-<a href="https://circleci.com/gh/nestjs/nest" target="_blank"><img src="https://img.shields.io/circleci/build/github/nestjs/nest/master" alt="CircleCI" /></a>
-<a href="https://coveralls.io/github/nestjs/nest?branch=master" target="_blank"><img src="https://coveralls.io/repos/github/nestjs/nest/badge.svg?branch=master#9" alt="Coverage" /></a>
-<a href="https://discord.gg/G7Qnnhy" target="_blank"><img src="https://img.shields.io/badge/discord-online-brightgreen.svg" alt="Discord"/></a>
-<a href="https://opencollective.com/nest#backer" target="_blank"><img src="https://opencollective.com/nest/backers/badge.svg" alt="Backers on Open Collective" /></a>
-<a href="https://opencollective.com/nest#sponsor" target="_blank"><img src="https://opencollective.com/nest/sponsors/badge.svg" alt="Sponsors on Open Collective" /></a>
-  <a href="https://paypal.me/kamilmysliwiec" target="_blank"><img src="https://img.shields.io/badge/Donate-PayPal-ff3f59.svg" alt="Donate us"/></a>
-    <a href="https://opencollective.com/nest#sponsor"  target="_blank"><img src="https://img.shields.io/badge/Support%20us-Open%20Collective-41B883.svg" alt="Support us"></a>
-  <a href="https://twitter.com/nestframework" target="_blank"><img src="https://img.shields.io/twitter/follow/nestframework.svg?style=social&label=Follow" alt="Follow us on Twitter"></a>
-</p>
-  <!--[![Backers on Open Collective](https://opencollective.com/nest/backers/badge.svg)](https://opencollective.com/nest#backer)
-  [![Sponsors on Open Collective](https://opencollective.com/nest/sponsors/badge.svg)](https://opencollective.com/nest#sponsor)-->
+## Problem Statement
+FluxKart.com needs to identify and track customers across multiple purchases, even when they use different contact information. The challenge is to:
+- Link orders with different contact information to the same customer
+- Maintain a hierarchy of primary and secondary contact records
+- Provide a consolidated view of customer contact information
 
-## Description
+## Solution
+The solution implements a REST API endpoint that:
+- Receives customer contact information (email and/or phone number)
+- Identifies existing customer records
+- Links related contact information
+- Returns consolidated customer data
 
-[Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
+### Key Features
+- Contact identification and linking
+- Primary/secondary contact management
+- Transaction-based data consistency
+- Flexible handling of partial contact information
 
-## Project setup
+## Technical Implementation
 
-```bash
-$ npm install
+### Architecture
+- Framework: NestJS with TypeScript
+- Database: PostgreSQL with TypeORM
+- Architecture: Repository pattern with service layer
+
+### Data Model
+```typescript
+@Entity()
+export class Contact {
+  @PrimaryGeneratedColumn()
+  id: number;
+
+  @Column({ nullable: true })
+  phoneNumber: string;
+
+  @Column({ nullable: true })
+  email: string;
+
+  @Column({ nullable: true })
+  linkedId: number;
+
+  @Column({
+    type: 'enum',
+    enum: ['primary', 'secondary'],
+    default: 'primary',
+  })
+  linkPrecedence: 'primary' | 'secondary';
+
+  @CreateDateColumn()
+  createdAt: Date;
+
+  @UpdateDateColumn()
+  updatedAt: Date;
+
+  @Column({ nullable: true })
+  deletedAt: Date;
+}
 ```
 
-## Compile and run the project
+### API Endpoint
 
-```bash
-# development
-$ npm run start
+#### POST /identify
+Identifies and consolidates customer contact information.
 
-# watch mode
-$ npm run start:dev
-
-# production mode
-$ npm run start:prod
+**Request Format:**
+```json
+{
+  "email": "example@email.com",
+  "phoneNumber": "1234567890"
+}
 ```
 
-## Run tests
-
-```bash
-# unit tests
-$ npm run test
-
-# e2e tests
-$ npm run test:e2e
-
-# test coverage
-$ npm run test:cov
+**Response Format:**
+```json
+{
+  "contact": {
+    "primaryContatctId": 1,
+    "emails": ["example@email.com"],
+    "phoneNumbers": ["1234567890"],
+    "secondaryContactIds": []
+  }
+}
 ```
 
-## Deployment
+## Setup and Installation
 
-When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.
+### Prerequisites
+- Node.js (v14 or higher)
+- npm or yarn or bun
+- PostgreSQL (or your preferred SQL database)
 
-If you are looking for a cloud-based platform to deploy your NestJS application, check out [Mau](https://mau.nestjs.com), our official platform for deploying NestJS applications on AWS. Mau makes deployment straightforward and fast, requiring just a few simple steps:
+### Installation Steps
+1. Clone the repository:
+   ```bash
+   git clone https://github.com/yourusername/identity-reconciliation.git
+   ```
 
+2. Install dependencies:
+   ```bash
+   cd identity-reconciliation
+   bun install
+   ```
+
+3. Configure environment variables:
+   ```bash
+   cp .envrc.example .envrc
+   # Edit .envrc with your database credentials
+   # if you don't use direnv you'll have to manually add all variables to your current shell scope
+   ```
+
+4. Start the server:
+   ```bash
+   bun run build && bun run start:prod
+   ```
+
+## Usage Examples
+
+### Creating a New Contact
 ```bash
-$ npm install -g mau
-$ mau deploy
+curl -X POST http://localhost:3000/identify \
+  -H "Content-Type: application/json" \
+  -d '{"email": "lorraine@hillvalley.edu", "phoneNumber": "123456"}'
 ```
 
-With Mau, you can deploy your application in just a few clicks, allowing you to focus on building features rather than managing infrastructure.
+### Linking an Existing Contact
+```bash
+curl -X POST http://localhost:3000/identify \
+  -H "Content-Type: application/json" \
+  -d '{"email": "mcfly@hillvalley.edu", "phoneNumber": "123456"}'
+```
 
-## Resources
+## Implementation Details
 
-Check out a few resources that may come in handy when working with NestJS:
+### Contact Linking Logic
+1. **New Contact Creation:**
+   - Creates a primary contact when no matching records exist
+   - Assigns primary status to the first contact
 
-- Visit the [NestJS Documentation](https://docs.nestjs.com) to learn more about the framework.
-- For questions and support, please visit our [Discord channel](https://discord.gg/G7Qnnhy).
-- To dive deeper and get more hands-on experience, check out our official video [courses](https://courses.nestjs.com/).
-- Deploy your application to AWS with the help of [NestJS Mau](https://mau.nestjs.com) in just a few clicks.
-- Visualize your application graph and interact with the NestJS application in real-time using [NestJS Devtools](https://devtools.nestjs.com).
-- Need help with your project (part-time to full-time)? Check out our official [enterprise support](https://enterprise.nestjs.com).
-- To stay in the loop and get updates, follow us on [X](https://x.com/nestframework) and [LinkedIn](https://linkedin.com/company/nestjs).
-- Looking for a job, or have a job to offer? Check out our official [Jobs board](https://jobs.nestjs.com).
+2. **Contact Linking:**
+   - Links contacts based on matching email or phone number
+   - Maintains the oldest contact as primary
+   - Creates secondary contacts for new information
 
-## Support
+3. **Response Generation:**
+   - Fetches all linked contact information
+   - Returns primary contact ID and all associated information
 
-Nest is an MIT-licensed open source project. It can grow thanks to the sponsors and support by the amazing backers. If you'd like to join them, please [read more here](https://docs.nestjs.com/support).
+## Live Demo
+The API is hosted at: `https://identity-reconciliation-lcw3.onrender.com/identify`
 
-## Stay in touch
-
-- Author - [Kamil Myśliwiec](https://twitter.com/kammysliwiec)
-- Website - [https://nestjs.com](https://nestjs.com/)
-- Twitter - [@nestframework](https://twitter.com/nestframework)
-
-## License
-
-Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).
+## Future Improvements
+- Add caching layer for frequently accessed contacts
+- Implement bulk contact reconciliation
+- Enhance validation and error handling
+- Add rate limiting and security measures

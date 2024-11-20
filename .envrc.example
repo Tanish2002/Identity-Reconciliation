@@ -1,0 +1,4 @@
+# ignore this, related to direnv
+source_up
+
+export DATABASE_URL=<some url>
