@@ -1,4 +1,10 @@
-import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn } from 'typeorm';
+import {
+  Entity,
+  PrimaryGeneratedColumn,
+  Column,
+  CreateDateColumn,
+  UpdateDateColumn,
+} from 'typeorm';
 
 @Entity()
 export class Contact {
@@ -17,7 +23,7 @@ export class Contact {
   @Column({
     type: 'enum',
     enum: ['primary', 'secondary'],
-    default: 'primary'
+    default: 'primary',
   })
   linkPrecedence: 'primary' | 'secondary';
 

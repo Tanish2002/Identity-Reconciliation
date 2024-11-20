@@ -4,13 +4,14 @@ import { CreateContactDto } from './dto/create-contact.dto';
 
 @Controller('identify')
 export class ContactController {
-  constructor(private readonly contactService: ContactService) { }
+  constructor(private readonly contactService: ContactService) {}
 
   @Post()
   async identify(@Body() body: CreateContactDto) {
-
     if (!body.email && !body.phoneNumber) {
-      throw new BadRequestException('Either email or phone number must be provided');
+      throw new BadRequestException(
+        'Either email or phone number must be provided',
+      );
     }
 
     const email = body.email ? body.email.trim().toLowerCase() : null;
