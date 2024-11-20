@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { CreateContactDto } from './dto/create-contact.dto';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Contact } from './entities/contact.entity';
-import { Repository } from 'typeorm';
+import { EntityManager, Repository } from 'typeorm';
 
 export interface IdentifyResponse {
   contact: {
@@ -22,81 +22,157 @@ export class ContactService {
   async identify(payload: CreateContactDto): Promise<IdentifyResponse> {
     const { email, phoneNumber } = payload;
 
-    const matches = await this.contactRepository.find({
-      where: [{ email: email || null }, { phoneNumber: phoneNumber || null }],
+    return this.contactRepository.manager.transaction(
+      async (transactionalEntityManager) => {
+        // Find existing contacts
+        const existingContacts = await this.findExistingContacts(
+          transactionalEntityManager,
+          email,
+          phoneNumber,
+        );
+
+        // no data found, create new primary contact
+        if (existingContacts.length === 0) {
+          return this.createNewPrimaryContact(
+            transactionalEntityManager,
+            email,
+            phoneNumber,
+          );
+        }
+
+        const primaryContact = await this.determinePrimaryContact(
+          transactionalEntityManager,
+          existingContacts,
+        );
+
+        const updatedContacts = await this.processContactLinking(
+          transactionalEntityManager,
+          primaryContact,
+          existingContacts,
+          email,
+          phoneNumber,
+        );
+
+        // Save updated contacts
+        if (updatedContacts.length > 0) {
+          await transactionalEntityManager.save(updatedContacts);
+        }
+
+        // fetch all linked contacts, I did do all the processing above so I could use that but this seems more robust.
+        const linkedContacts = await this.fetchLinkedContacts(
+          transactionalEntityManager,
+          primaryContact,
+        );
+
+        return this.buildIdentityResponse(primaryContact, linkedContacts);
+      },
+    );
+  }
+
+  private async findExistingContacts(
+    entityManager: EntityManager,
+    email?: string,
+    phoneNumber?: string,
+  ): Promise<Contact[]> {
+    return entityManager.find(Contact, {
+      where: [
+        { email: email || undefined },
+        { phoneNumber: phoneNumber || undefined },
+      ],
       order: { createdAt: 'ASC' },
     });
+  }
 
-    // If no matches create new contact with linkPrecedence primary
-    if (matches.length === 0) {
-      const newContact = this.contactRepository.create({
-        email,
-        phoneNumber,
-        linkPrecedence: 'primary',
+  // find a primary contact from all matches if not found (shouldn't happend tbh) mark oldest contact as primary
+  private async determinePrimaryContact(
+    entityManager: EntityManager,
+    contacts: Contact[],
+  ): Promise<Contact> {
+    let primaryContact = contacts.find((c) => c.linkPrecedence === 'primary');
+
+    // if no primary contact then find the linked primary contact from secondary
+    if (!primaryContact) {
+      // not really neccessary ig. could just pick anyone
+      const oldestSecondaryContact = contacts.reduce((oldest, current) =>
+        oldest.createdAt <= current.createdAt ? oldest : current,
+      );
+      primaryContact = await entityManager.findOne(Contact, {
+        where: [{ id: oldestSecondaryContact.linkedId }],
       });
-      const savedContact = await this.contactRepository.save(newContact);
-
-      return {
-        contact: {
-          primaryContatctId: savedContact.id,
-          emails: email ? [email] : [],
-          phoneNumbers: phoneNumber ? [phoneNumber] : [],
-          secondaryContactIds: [],
-        },
-      };
     }
 
-    // find primary contact from all matches
-    const primaryContact =
-      matches.find((c) => c.linkPrecedence === 'primary') ||
-      matches.reduce((oldest, current) =>
-        oldest.createdAt < current.createdAt ? oldest : current,
-      );
+    return primaryContact;
+  }
+
+  private async processContactLinking(
+    entityManager: EntityManager,
+    primaryContact: Contact,
+    existingContacts: Contact[],
+    email?: string,
+    phoneNumber?: string,
+  ): Promise<Contact[]> {
+    const updatedContacts: Contact[] = [];
 
     // mark other contacts as secondary
-    const otherContacts = matches.filter((c) => c.id !== primaryContact.id);
-    for (const contact of otherContacts) {
+    const secondaryContacts = existingContacts.filter(
+      (c) => c.id !== primaryContact.id,
+    );
+    for (const contact of secondaryContacts) {
       if (
         contact.linkPrecedence !== 'secondary' ||
         contact.linkedId !== primaryContact.id
       ) {
         contact.linkedId = primaryContact.id;
         contact.linkPrecedence = 'secondary';
-        await this.contactRepository.save(contact);
+        updatedContacts.push(contact);
       }
     }
 
-    const existingEmails = matches.map((c) => c.email).filter(Boolean);
-    const existingPhoneNumbers = matches
-      .map((c) => c.phoneNumber)
-      .filter(Boolean);
+    // Check if new contact information needs to be added
+    const existingEmails = new Set(
+      existingContacts.map((c) => c.email).filter(Boolean),
+    );
+    const existingPhoneNumbers = new Set(
+      existingContacts.map((c) => c.phoneNumber).filter(Boolean),
+    );
 
-    if (
-      (email && !existingEmails.includes(email)) ||
-      (phoneNumber && !existingPhoneNumbers.includes(phoneNumber))
-    ) {
-      const newSecondaryContact = this.contactRepository.create({
+    const isNewEmail = email && !existingEmails.has(email);
+    const isNewPhoneNumber =
+      phoneNumber && !existingPhoneNumbers.has(phoneNumber);
+
+    // Create new secondary contact if needed
+    if (isNewEmail || isNewPhoneNumber) {
+      const newSecondaryContact = entityManager.create(Contact, {
         email,
         phoneNumber,
         linkedId: primaryContact.id,
         linkPrecedence: 'secondary',
       });
-      await this.contactRepository.save(newSecondaryContact);
-      otherContacts.push(newSecondaryContact);
+      updatedContacts.push(newSecondaryContact);
     }
 
-    const emails = Array.from(
-      new Set([
-        primaryContact.email,
-        ...otherContacts.map((c) => c.email).filter(Boolean),
-      ]),
-    );
+    return updatedContacts;
+  }
 
+  private async fetchLinkedContacts(
+    entityManager: EntityManager,
+    primaryContact: Contact,
+  ): Promise<Contact[]> {
+    return entityManager.find(Contact, {
+      where: [{ id: primaryContact.id }, { linkedId: primaryContact.id }],
+      order: { createdAt: 'ASC' },
+    });
+  }
+
+  private buildIdentityResponse(
+    primaryContact: Contact,
+    linkedContacts: Contact[],
+  ): IdentifyResponse {
+    const emails = Array.from(
+      new Set(linkedContacts.map((c) => c.email).filter(Boolean)),
+    );
     const phoneNumbers = Array.from(
-      new Set([
-        primaryContact.phoneNumber,
-        ...otherContacts.map((c) => c.phoneNumber).filter(Boolean),
-      ]),
+      new Set(linkedContacts.map((c) => c.phoneNumber).filter(Boolean)),
     );
 
     return {
@@ -104,7 +180,32 @@ export class ContactService {
         primaryContatctId: primaryContact.id,
         emails,
         phoneNumbers,
-        secondaryContactIds: otherContacts.map((c) => c.id),
+        secondaryContactIds: linkedContacts
+          .filter((c) => c.id !== primaryContact.id)
+          .map((c) => c.id),
+      },
+    };
+  }
+
+  private async createNewPrimaryContact(
+    entityManager: EntityManager,
+    email?: string,
+    phoneNumber?: string,
+  ): Promise<IdentifyResponse> {
+    const newContact = entityManager.create(Contact, {
+      email,
+      phoneNumber,
+      linkPrecedence: 'primary',
+    });
+
+    const savedContact = await entityManager.save(newContact);
+
+    return {
+      contact: {
+        primaryContatctId: savedContact.id,
+        emails: email ? [email] : [],
+        phoneNumbers: phoneNumber ? [phoneNumber] : [],
+        secondaryContactIds: [],
       },
     };
   }
