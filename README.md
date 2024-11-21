@@ -98,7 +98,7 @@ Identifies and consolidates customer contact information.
 ### Installation Steps
 1. Clone the repository:
    ```bash
-   git clone https://github.com/yourusername/identity-reconciliation.git
+   git clone https://github.com/Tanish2002/Identity-Reconciliation.git
    ```
 
 2. Install dependencies:
